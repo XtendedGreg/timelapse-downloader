@@ -1,9 +1,18 @@
-# Timelapse Downloader V2 Standalone Installation
-# By: XtendedGreg 2024
+Timelapse DownloaderV2 Standalone Installation
 
-apk add screen coreutils tzdata cryptsetup samba mbedtls fuse ntfs-3g cifs-utils ruby sfdisk
+configure
 
-## Copy Files to matching location from root folder
+apk add screen dislocker coreutils tzdata cryptsetup samba mbedtls fuse ntfs-3g cifs-utils ruby sfdisk
+
+## Copy Files to matching location from root
+
+# Add BTRFS Support
+if [ $(cat /etc/modules | grep btrfs | wc -l) -eq 0 ]; then
+    echo btrfs >> /etc/modules
+fi
+apk add btrfs-progs
+chmod +x /etc/init.d/btrfs-scan
+rc-update add btrfs-scan boot
 
 # Add SMB Server Share
 ## Add service default user
@@ -37,6 +46,7 @@ rc-update add timelapse-loader default
 
 # Add files to lbu
 lbu add /etc/init.d/timelapse-*
+lbu add /etc/init.d/btrfs-scan
 lbu add /var/lib/samba
 lbu exclude /var/lib/samba/private/msg.sock
 lbu add /usr/local/bin/dislocker*
@@ -45,6 +55,7 @@ lbu add /bin/timelapse-*
 
 # Restrict Access to Passwords
 chmod 600 /etc/timelapse/archiver/peerServerCredentials
+chmod 600 /etc/timelapse/cache/passphrase
 chmod 600 /etc/timelapse/downloader/inputStream
 chmod 600 /etc/timelapse/storage/passphrase
 
@@ -52,7 +63,10 @@ chmod 600 /etc/timelapse/storage/passphrase
 echo -n "0" > /etc/timelapse/downloader/interval
 echo -n "[URL]" > /etc/timelapse/downloader/inputStream
 
-echo -n "/dev/nvme0n1p2" > /etc/timelapse/storage/drive
 echo -n "[passphrase]" > /etc/timelapse/storage/passphrase
+
+echo -n "[passphrase]" > /etc/timelapse/cache/passphrase
+
+vi /etc/timelapse/archiver/peerServerCredentials
 
 lbu commit -d
