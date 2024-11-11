@@ -1,0 +1,131 @@
+#!/bin/ash
+echo $(date) - Starting Timelapse Archiver
+
+HOUR=24
+currentSeconds=$(date +%s)
+
+if [[ "$1" != "" ]]; then
+        # Process Past Hours
+        post=$1
+        echo "Processing Past Hours - $post Hours"
+else
+        post=-1
+fi
+
+while true; do
+    if [ $HOUR -ne $(date +%H) ] || [ $post -ge 0  ]; then
+        HOUR=$(date +%H)
+        lastSeconds=$currentSeconds
+        currentSeconds=$(date +%s)
+        if [ $(($currentSeconds-$lastSeconds)) -gt 36120 ]; then # Check if transcoding took longer than 1 hour 2 minutes
+            echo ERROR: Process is slower than realtime.  Transcoding will skip to current hour.
+        fi
+        if [ $post -gt 1 ]; then
+            current=$(date -d "$post hour ago" "+%Y/%m/%d/%H")
+            currentFile=$(date -d "$post hour ago" +%Y-%m-%d_%H_%Z)
+            post=$(($post-1))
+        elif [ $post -eq 1 ]; then
+                break
+        else
+            current=$(date -d '1 hour ago' "+%Y/%m/%d/%H")
+            currentFile=$(date -d '1 hour ago' +%Y-%m-%d_%H_%Z)
+            echo $(date) - Starting Archive for $current
+            if [ $(find /media/storage/$current -name "*.jpg" -print | wc -l) -ne 0 ]; then
+                if [ ! -e /media/storage/$current ]; then
+                    mkdir -p /media/storage/$current
+                fi
+                echo Started archiving $current...
+                if [ ! -e /media/storage/$current ]; then
+                    mkdir -p /media/storage/$current
+                fi
+                for f in $(find /media/storage/$current -name "*.jpg" -print | sort); do echo "file '$f'" >> /tmp/fileList$$.txt; done && ffmpeg -threads 0 -hide_banner -safe 0 -f concat -r $(cat /etc/timelapse/archiver/framerate) -i /tmp/fileList$$.txt -an -r $(cat /etc/timelapse/archiver/framerate) -y -vcodec libx265 -vf scale="trunc(iw/ohsub)*ohsub:trunc(ih/ovsub)*ovsub:force_original_aspect_ratio=decrease" -pix_fmt yuv420p10le /media/storage/$current/timelapse-${currentFile}.mp4 && cat /tmp/fileList$$.txt | cut -d"'" -f2 | xargs rm && rm /tmp/fileList$$.txt && echo Success. || echo Failed.
+                timer=$(($(date +%s)-$currentSeconds))
+                echo Process Time: $((timer/60)) Minutes $((timer%60)) seconds.
+            else
+                echo $current - No Files to archive.
+            fi
+            while true; do
+                if [ $(date +%M) -ge 55 ]; then
+                    break
+                fi
+                sleep 10
+            done
+        fi
+        if [ $(cat /etc/timelapse/archiver/peerServerEnable) -eq 1 ]; then
+            if [ ! -e /media/peerServer ]; then
+                mkdir /media/peerServer
+            fi
+            if [ ! -e /tmp/peerLock ]; then
+                mkdir /tmp/peerLock
+            fi
+            touch /tmp/peerLock/$$
+            if [ $(df -h | grep "/media/peerServer" | wc -l) -eq 0 ]; then
+                mount -t cifs -o credentials=/etc/timelapse/archiver/peerServerCredentials "$(cat /etc/timelapse/archiver/peerServerAddress)" /media/peerServer && connectionGood=1 || connectionGood=0
+            else
+                connectionGood=1
+            fi
+            if [ $connectionGood -eq 1 ]; then
+                if [ -e /media/peerServer/$current/timelapse-$currentFile.mp4 ]; then
+                    if [ ! -e /media/storage/$current ]; then
+                        echo $(date) - Making Directory /media/storage/$current
+                        mkdir -p /media/storage/$current
+                    fi
+                    if [ ! -e /media/storage/$current/timelapse-$currentFile.mp4 ] || [ $(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /media/storage/$current/timelapse-$currentFile.mp4 2>/dev/null || echo 0) -lt $(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /media/peerServer/$current/timelapse-$currentFile.mp4 2>/dev/null || echo 0) ]; then
+                        if [ $post -gt 0 ]; then
+                            echo -n $(date) - $current - Peer MP4 Encoded Version Longer. Replacing local with MP4 from peer...
+                        else
+                            echo -n $(date) - Peer MP4 Encoded Version Longer. Replacing local with MP4 from peer...
+                        fi
+                        if [ $(cp -f /media/peerServer/$current/timelapse-$currentFile.mp4 /media/storage/$current/ && echo 1 || echo 0) -eq 1 ]; then
+                            if [ $(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /media/storage/$current/timelapse-$currentFile.mp4 2>/dev/null || echo 0) -eq $(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /media/peerServer/$current/timelapse-$currentFile.mp4 2>/dev/null || echo 0) ]; then
+                                echo Success.
+                            else
+                                echo Failed - Copy Error.
+                            fi
+                        else
+                            echo Failed.
+                        fi
+                    fi
+                else
+                    if [ -e /media/storage/$current/timelapse-$currentFile.mp4 ]; then
+                        if [ $post -gt 0 ]; then
+                            echo $(date) - $current - MP4 version unavailable on peer server.  Keeping current MP4.
+                        else
+                            echo $(date) - MP4 version unavailable on peer server. Keeping current MP4.
+                        fi
+					else
+						if [ $post -gt 0 ]; then
+							echo $(date) - $current - No files available for current hour.
+						else
+							echo $(date) - No files available.
+						fi
+					fi
+                fi
+                if [ -e /tmp/peerLock/$$ ]; then
+                    rm /tmp/peerLock/$$
+                fi
+                if [ $(ls /tmp/peerLock | wc -l) -eq 0 ]; then
+                    umount /media/peerServer
+                else
+                    locked=0
+                    ls /tmp/peerLock | while read pidLock; do
+                        if [ $(ps -o pid | grep $pidLock | wc -l) -eq 1 ]; then
+                            locked=1
+                        else
+                            rm /tmp/peerLock/$pidLock
+                        fi
+                    done
+                    if [ $locked -eq 0 ]; then
+                        umount /media/peerServer
+                    fi
+                fi
+            else
+                echo $(date) - Could not connect to peer server.
+            fi
+        fi
+    fi
+    if [ $post -lt 0 ]; then
+        sleep 10;
+    fi
+done
+exit 0

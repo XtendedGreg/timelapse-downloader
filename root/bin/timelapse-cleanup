@@ -1,0 +1,7 @@
+#!/bin/ash
+# Timelapse Clean Up
+
+# Storage
+find /media/storage -empty -type d -not -path "/media/storage/$(date -d '2 hour ago' +%Y/%m/%d/%H)/*" -not -path "/media/storage/$(date -d '1 hour ago' +%Y/%m/%d/%H)/*" -not -path "/media/storage/$(date +%Y/%m/%d/%H)/*" -delete
+
+exit 0

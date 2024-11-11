@@ -1,0 +1,51 @@
+#!/bin/ash
+echo $(date) - Starting Timelapse Downloader
+
+error=0
+FRAME_RATE=$(cat /etc/timelapse/downloader/interval)
+INPUT_FLAGS=$(cat /etc/timelapse/downloader/inputFlags)
+INPUT_STREAM=$(cat /etc/timelapse/downloader/inputStream)
+
+if [[ "$FRAME_RATE" == "" ]]; then
+    echo interval must be defined in input.conf file.
+    error=1
+fi
+
+if [[ "$INPUT_STREAM" == "" ]]; then
+    echo inputStream must be defined in input.conf file.
+    error=1
+else
+    echo Using inputStream: $INPUT_STREAM
+fi
+
+if [ $error -eq 1 ]; then
+    exit 1
+fi
+
+currentFile=""
+currentHour=$(date +%H)
+currentSecond=$(date +%S)
+while true; do
+    currentSecond=$(date +%S)
+    path=/media/storage/$(date +%Y/%m/%d/%H)
+    if [ ! -e $path ]; then
+        echo $(date) - Making Directory $path
+        mkdir -p $path
+    fi
+    fileName=$(date +%Y-%m-%d_%H-%M-%S)
+    if [ ! -e $path/$fileName.jpg ]; then
+        timeout $(($FRAME_RATE*2)) wget --timeout=$FRAME_RATE $INPUT_FLAGS "$INPUT_STREAM" -O $path/$fileName.jpg
+        # Check if image is the same against previous successful file to deduplicate images
+        if [[ "$(cat "$currentFile" || echo 1)" != "$(cat "$path/$fileName.jpg")" ]]; then
+            currentFile=$path/$fileName.jpg
+        else
+            echo DEDUP: $path/$fileName.jpg Removed.
+            rm $path/$fileName.jpg
+        fi
+    else
+        sleep 0.25
+    fi
+    sleep $FRAME_RATE;
+done
+
+exit 0

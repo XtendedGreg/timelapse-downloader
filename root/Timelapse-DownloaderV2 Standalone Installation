@@ -1,0 +1,58 @@
+# Timelapse Downloader V2 Standalone Installation
+# By: XtendedGreg 2024
+
+apk add screen coreutils tzdata cryptsetup samba mbedtls fuse ntfs-3g cifs-utils ruby sfdisk
+
+## Copy Files to matching location from root folder
+
+# Add SMB Server Share
+## Add service default user
+adduser -D -H samba
+smbpasswd -a samba # Create with SMB password
+## Add additional users
+adduser [username] # Create with strong password
+smbpasswd -a [username] # Create with SMB password
+## Password Prompt and Confirm
+rc-update add samba
+rc-service samba start
+
+# Build Dislocker from source
+apk add alpine-sdk fuse-dev mbedtls-dev ruby-dev cmake
+git clone https://github.com/Aorimn/dislocker.git
+cd dislocker
+cmake .
+make
+make install
+apk del alpine-sdk fuse-dev mbedtls-dev ruby-dev cmake
+if [ $(cat /etc/modules | grep fuse | wc -l) -eq 0 ]; then
+    echo fuse >> /etc/modules
+fi
+
+# Add executable permissions to init and bin
+chmod +x /etc/init.d/timelapse-*
+chmod +x /bin/timelapse-*
+
+# Add timelapse-loader to launch on startup
+rc-update add timelapse-loader default
+
+# Add files to lbu
+lbu add /etc/init.d/timelapse-*
+lbu add /var/lib/samba
+lbu exclude /var/lib/samba/private/msg.sock
+lbu add /usr/local/bin/dislocker*
+lbu add /usr/local/lib/libdislocker.so*
+lbu add /bin/timelapse-*
+
+# Restrict Access to Passwords
+chmod 600 /etc/timelapse/archiver/peerServerCredentials
+chmod 600 /etc/timelapse/downloader/inputStream
+chmod 600 /etc/timelapse/storage/passphrase
+
+# Configuration
+echo -n "0" > /etc/timelapse/downloader/interval
+echo -n "[URL]" > /etc/timelapse/downloader/inputStream
+
+echo -n "/dev/nvme0n1p2" > /etc/timelapse/storage/drive
+echo -n "[passphrase]" > /etc/timelapse/storage/passphrase
+
+lbu commit -d

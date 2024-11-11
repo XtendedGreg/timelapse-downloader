@@ -1,0 +1,117 @@
+#!/bin/ash
+# Timelapse Drive Mounter, Unmounter and Watcher
+
+case $1 in
+load-storage)
+    # Decrypt and Mount storage drive
+    # Storage
+    if [ ! -e /media/bitlocker ]; then
+        mkdir -p /media/bitlocker
+    fi
+    if [ ! -e /media/storage ]; then
+        mkdir -p /media/storage
+    fi
+    if [ $(df /media/storage | grep /media/storage > /dev/null && echo 0 || echo 1) -eq 1 ]; then
+        # Confirm drive is not mounted and clear directory to mount
+	if [ -e /media/storage ] && [ $(ls /media/storage | wc -l) -ne 0 ]; then
+	        rm -r /media/storage/*
+	fi
+    fi
+    
+    dislocker $(cat /etc/timelapse/storage/drive) -u$(cat /etc/timelapse/storage/passphrase) -- /media/bitlocker
+    mount -t ntfs-3g -o loop /media/bitlocker/dislocker-file /media/storage && echo $(date) - Storage Mounted || echo $(date) - Storage Failed to Mount
+    exit 0
+    ;;
+unload)
+    #Services
+    if [ $(/etc/init.d/timelapse-downloader status | grep started | wc -l) -eq 1 ]; then
+        /etc/init.d/timelapse-downloader stop
+    fi
+    if [ $(/etc/init.d/timelapse-archiver status | grep started | wc -l) -eq 1 ]; then
+        /etc/init.d/timelapse-archiver stop
+    fi
+    
+    # Unmount all drives
+    # Storage
+    umount /media/storage || lsof | grep '/media/storage'
+    umount /media/bitlocker
+    
+    exit 0
+    ;;
+launch)
+    # Watcher loop will begin below
+    ;;
+*)
+    # No Action Taken
+    echo Dependant services still running.  No action taken.
+    exit 0
+    ;;
+esac
+
+######### Begin Launcher watch code #########
+
+# Set default timezone if defined otherwise use UTC
+TIMEZONE=$(cat /etc/timelapse/timezone)
+if [[ "$TIMEZONE" == "" ]] || [ ! -e /usr/share/zoneinfo/$TIMEZONE ]; then
+    echo Timezone not defined, using UTC.
+    TIMEZONE=UTC
+fi
+if [ -e /usr/share/zoneinfo/$TIMEZONE ]; then
+    echo Using timezone: $TIMEZONE
+    echo Date Before: $(date)
+    cp /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+    echo $TIMEZONE >  /etc/timezone
+    echo Date After: $(date)
+fi
+
+previousState=0
+currentHour=$(date +%H)
+
+while true; do
+    sleep 5
+    connected=0
+    storageState=$(sfdisk -l $storagePartition > /dev/null && echo 0 || echo 1)
+    connected=$(($connected+$storageState))
+    if [ $connected -gt 0 ]; then
+        if [ $previousState -eq 1 ]; then
+            echo A Drive Has Been Disconnected...Stopping Dependant Services
+            /etc/init.d/timelapse-downloader stop
+            /etc/init.d/timelapse-archiver stop
+            previousState=0
+        fi
+    fi
+    
+    mounted=0
+    storageState=$(df /media/storage | grep /media/storage > /dev/null && echo 0 || echo 1)
+    mounted=$(($mounted+$storageState))
+    if [ $mounted -gt 0 ]; then
+        if [ $storageState -eq 1 ]; then
+            # Mount Storage Drive
+            echo $(date) - Mounting Storage
+            $0 load-storage
+        fi
+        if [ $previousState -eq 1 ]; then
+            echo $(date) - A Drive Has Been Unmounted...Stopping Dependant Services
+            /etc/init.d/timelapse-downloader stop
+            /etc/init.d/timelapse-archiver stop
+            previousState=0
+        fi
+    else
+        if [ $previousState -eq 0 ]; then
+            echo $(date) - All drives are connected and mounted...Starting Dependant Services
+            /etc/init.d/timelapse-downloader start
+            /etc/init.d/timelapse-archiver start
+            previousState=1
+        fi
+    fi
+    if [ $currentHour != $(date +%H) ]; then
+        # Check if over limit and delete earliest hour from storage
+        /bin/timelapse-deleteEarliestFile "/media/storage" "$(cat /etc/timelapse/storage/drivePercentLimit)" & 
+        
+        # Clean up old files and empty directories from cache and storage
+        /bin/timelapse-cleanup &
+        currentHour=$(date +%H)
+    fi
+done
+exit 0
+

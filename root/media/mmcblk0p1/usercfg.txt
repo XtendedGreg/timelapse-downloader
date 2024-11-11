@@ -1,0 +1,2 @@
+dtparam=nvme
+dtparam=pciex1_gen=3

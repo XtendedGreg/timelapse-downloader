@@ -1,0 +1,40 @@
+#!/sbin/openrc-run
+  
+name=$RC_SVCNAME
+cfgfile="/etc/$RC_SVCNAME/$RC_SVCNAME.conf"
+command="/usr/bin/screen"
+command_args="-dmS $RC_SVCNAME /bin/timelapse-loader launch"
+command_user="root"
+pidfile="/run/$RC_SVCNAME/$RC_SVCNAME.pid"
+command_background="yes"
+
+depend() {
+    need net
+}
+
+start_pre() {
+    checkpath --directory --owner $command_user:$command_user --mode 0775 \
+    /run/$RC_SVCNAME /var/log/$RC_SVCNAME
+    if [ $($command -ls | grep $RC_SVCNAME | wc -l) -eq 1 ]; then
+        $command -X -S $RC_SVCNAME quit
+    fi
+}
+
+start(){
+    $command $command_args
+    echo $(screen -ls $RC_SVCNAME | grep $RC_SVCNAME | cut -d. -f1 | awk '{print $1}') > $pidfile
+}
+
+stop() {
+	if [ $($command -ls | grep $RC_SVCNAME | wc -l) -eq 1 ]; then
+		$command -X -S $RC_SVCNAME quit
+        fi
+        echo -n Exiting $RC_SVCNAME...
+	while [ $($command -ls | grep $RC_SVCNAME | wc -l) -eq 1 ]; do
+		echo -n .
+		sleep 1
+	done
+	/bin/timelapse-loader unload
+	echo done
+}
+

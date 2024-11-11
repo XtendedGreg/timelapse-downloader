@@ -1,0 +1,59 @@
+############## Timelapse DownloaderV2 Standalone Installation ##############
+
+Launcher INIT.D: /etc/init.d/timelapse-loader [start|stop|restart|status]
+Launcher Screen: screen -r timelapse-loader
+
+Timelapse-Downloader Screen: screen -r timelapse-downloader
+Timelapse-Archiver Screen..: screen -r timelapse-archiver
+
+Storage Passphrase Config: echo -n "key" > /etc/timelapse/storage/passphrase
+Cache Passphrase Config..: echo -n "key" > /etc/timelapse/cache/passphrase
+
+New Storage Drive Initialization:
+ - Format drive on Windows Machine and apply bitlocker
+ - Update Storage Passphrase accordingly at the location above
+ 
+New Cache Drive Initialization:
+ - Use FDISK to create a partition (should not exceed 90% for SSD)
+ - cryptsetup luksFormat /dev/sdb1 /etc/timelapse/cache/keyfile
+	- Type YES to confirm
+ - cryptsetup open /dev/sdb1 cache
+	- Enter password
+ - mkfs.btrfs /dev/mapper/cache
+ - if [ ! -e /media/cache ]; then mkdir -p /media/cache; fi
+ - mount -t btrfs /dev/mapper/cache /media/cache
+
+Configuration Files: 
+/etc/timelapse/
+ - achiver/
+	- peerServerAddress
+	- peerServerCredentials
+	- peerServerEnable
+ - cache/
+	- keyfile
+	- partition
+ - downloader/
+	- inputFlags
+	- inputStream
+	- interval
+ - storage/
+	- drivePercentLimit
+	- partition
+	- passphrase
+ - timezone
+
+Add Samba User: 
+adduser [username]
+smbpasswd -a [username]
+
+Change Samba Password: smbpasswd [username]
+Samba Configuration..: /etc/samba/smb.conf
+
+Save Any Changes: lbu commit -d
+
+Download MP4s from Peer Server for past hours: timelapse-archiver [hours]
+
+Created By.: Gregory Pocali 8-31-2020
+Last Update: 11-24-2020
+
+############################################################################

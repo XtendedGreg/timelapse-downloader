@@ -1,0 +1,31 @@
+#!/bin/ash
+# Arg 1: Storage Path
+# Arg 2: Maximum Percentage
+function deleteEarliestFile {
+    timeout 5 df -h $1 > /dev/null
+    if [ "$?" -eq "0" ]; then
+        if [ "$(timeout 5 df -h $1 | grep -v Filesystem | awk '{print $5}' | cut -d% -f1)" -eq "$2" ]; then
+            year="$(ls $1/ | grep -e '[0-9]' | head -n 1)"
+            month="$(ls $1/$year/ | grep -e '[0-9]' | head -n 1)"
+            day="$(ls $1/$year/$month/ | grep -e '[0-9]' | head -n 1)"
+            hour="$(ls $1/$year/$month/$day/ | grep -e '[0-9]' | head -n 1)"
+            for file in $(ls $1/$year/$month/$day/$hour); do
+                rm $1/$year/$month/$day/$hour/$file
+            done
+            if [ -z "$(ls -A $1/$year/$month/$day/$hour)" ]; then
+                rmdir $1/$year/$month/$day/$hour
+            fi
+            if [ -z "$(ls -A $1/$year/$month/$day)" ]; then
+                rmdir $1/$year/$month/$day
+            fi
+            if [ -z "$(ls -A $1/$year/$month)" ]; then
+                rmdir $1/$year/$month
+            fi
+            if [ -z "$(ls -A $1/$year)" ]; then
+                rmdir $1/$year
+            fi
+        fi
+    fi
+}
+
+deleteEarliestFile "$1" "$2"
